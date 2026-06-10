@@ -1,0 +1,263 @@
+{
+  "name": "Outbound: Company → AI → Contact → Email → Sheets",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "industry", "value": "SaaS" },
+            { "name": "location", "value": "United States" },
+            { "name": "product_description", "value": "AI-powered sales automation that books more meetings" }
+          ],
+          "number": [
+            { "name": "limit", "value": 5 }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-params",
+      "name": "Set Search Params",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/v1/mixed_companies/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"q_organization_keyword_tags\": [\"{{ $json.industry }}\"],\n  \"organization_locations\": [\"{{ $json.location }}\"],\n  \"organization_num_employees_ranges\": [\"50,500\"],\n  \"page\": 1,\n  \"per_page\": {{ $json.limit }}\n}",
+        "options": {}
+      },
+      "id": "search-companies",
+      "name": "⚠️ Search Companies (Apollo)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "Add Apollo API key as HTTP Header Auth credential: X-Api-Key"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "organizations",
+        "options": {}
+      },
+      "id": "split-orgs",
+      "name": "Split Organizations",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-batches",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "content": "You are a B2B sales researcher. Return valid JSON only, no markdown."
+            },
+            {
+              "role": "user",
+              "content": "=Analyze this company for outbound sales.\n\nCompany: {{ $json.name }}\nWebsite: {{ $json.website_url }}\nIndustry: {{ $json.industry }}\n\nReturn JSON:\n{\n  \"summary\": \"2-3 sentence overview\",\n  \"pain_points\": [\"p1\", \"p2\", \"p3\"],\n  \"buying_triggers\": [\"t1\", \"t2\"],\n  \"ideal_contact_titles\": [\"VP Sales\", \"Head of Growth\"]\n}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "analyze-company",
+      "name": "⚠️ Analyze Company (OpenAI)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1340, 300],
+      "notes": "Assign OpenAI API credential"
+    },
+    {
+      "parameters": {
+        "jsCode": "const company = $('Split In Batches').item.json;\nlet analysis = {};\ntry {\n  const raw = $input.first().json.message?.content || $input.first().json.text || '{}';\n  const cleaned = raw.replace(/```json\\n?|```/g, '').trim();\n  analysis = JSON.parse(cleaned);\n} catch (e) {\n  analysis = { summary: 'Parse error', pain_points: [], buying_triggers: [], ideal_contact_titles: ['CEO'] };\n}\nreturn [{ json: { ...company, ...analysis } }];"
+      },
+      "id": "parse-analysis",
+      "name": "Parse Analysis JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/v1/mixed_people/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"organization_ids\": [\"{{ $json.id }}\"],\n  \"person_titles\": {{ JSON.stringify($json.ideal_contact_titles) }},\n  \"page\": 1,\n  \"per_page\": 1\n}",
+        "options": {}
+      },
+      "id": "find-contact",
+      "name": "⚠️ Find Contact (Apollo)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 300],
+      "notes": "Same Apollo API key credential as company search"
+    },
+    {
+      "parameters": {
+        "jsCode": "const company = $('Parse Analysis JSON').item.json;\nconst people = $input.first().json.people || [];\nconst person = people[0] || {};\nreturn [{\n  json: {\n    company_name: company.name,\n    website: company.website_url,\n    industry: company.industry,\n    analysis_summary: company.summary,\n    pain_points: (company.pain_points || []).join('; '),\n    contact_name: [person.first_name, person.last_name].filter(Boolean).join(' ') || 'Unknown',\n    contact_title: person.title || '',\n    contact_email: person.email || '',\n    product_description: $('Set Search Params').item.json.product_description\n  }\n}];"
+      },
+      "id": "merge-contact",
+      "name": "Merge Contact Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "content": "You write concise, personalized B2B cold emails. Return JSON only."
+            },
+            {
+              "role": "user",
+              "content": "=Write a cold outreach email.\n\nOur product: {{ $json.product_description }}\nCompany: {{ $json.company_name }}\nContact: {{ $json.contact_name }}, {{ $json.contact_title }}\nSummary: {{ $json.analysis_summary }}\nPain points: {{ $json.pain_points }}\n\nReturn JSON:\n{\"subject\": \"...\", \"body\": \"...\"}\n\nMax 150 words. One CTA. No buzzwords."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "id": "generate-email",
+      "name": "⚠️ Generate Email (OpenAI)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [2220, 300],
+      "notes": "Assign OpenAI API credential"
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $('Merge Contact Data').item.json;\nlet email = { subject: '', body: '' };\ntry {\n  const raw = $input.first().json.message?.content || $input.first().json.text || '{}';\n  const cleaned = raw.replace(/```json\\n?|```/g, '').trim();\n  email = JSON.parse(cleaned);\n} catch (e) {\n  email = { subject: 'Follow up', body: 'Could not generate email.' };\n}\nreturn [{\n  json: {\n    timestamp: new Date().toISOString(),\n    company_name: row.company_name,\n    website: row.website,\n    industry: row.industry,\n    analysis_summary: row.analysis_summary,\n    contact_name: row.contact_name,\n    contact_title: row.contact_title,\n    contact_email: row.contact_email,\n    email_subject: email.subject,\n    email_body: email.body,\n    status: 'draft'\n  }\n}];"
+      },
+      "id": "prepare-row",
+      "name": "Prepare Sheet Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "save-sheet",
+      "name": "⚠️ Save to Google Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2660, 300],
+      "notes": "Replace YOUR_GOOGLE_SHEET_ID and connect Google credentials"
+    },
+    {
+      "parameters": {},
+      "id": "loop-back",
+      "name": "Loop Back",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2880, 300]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{ "node": "Set Search Params", "type": "main", "index": 0 }]]
+    },
+    "Set Search Params": {
+      "main": [[{ "node": "⚠️ Search Companies (Apollo)", "type": "main", "index": 0 }]]
+    },
+    "⚠️ Search Companies (Apollo)": {
+      "main": [[{ "node": "Split Organizations", "type": "main", "index": 0 }]]
+    },
+    "Split Organizations": {
+      "main": [[{ "node": "Split In Batches", "type": "main", "index": 0 }]]
+    },
+    "Split In Batches": {
+      "main": [
+        [{ "node": "⚠️ Analyze Company (OpenAI)", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "⚠️ Analyze Company (OpenAI)": {
+      "main": [[{ "node": "Parse Analysis JSON", "type": "main", "index": 0 }]]
+    },
+    "Parse Analysis JSON": {
+      "main": [[{ "node": "⚠️ Find Contact (Apollo)", "type": "main", "index": 0 }]]
+    },
+    "⚠️ Find Contact (Apollo)": {
+      "main": [[{ "node": "Merge Contact Data", "type": "main", "index": 0 }]]
+    },
+    "Merge Contact Data": {
+      "main": [[{ "node": "⚠️ Generate Email (OpenAI)", "type": "main", "index": 0 }]]
+    },
+    "⚠️ Generate Email (OpenAI)": {
+      "main": [[{ "node": "Prepare Sheet Row", "type": "main", "index": 0 }]]
+    },
+    "Prepare Sheet Row": {
+      "main": [[{ "node": "⚠️ Save to Google Sheet", "type": "main", "index": 0 }]]
+    },
+    "⚠️ Save to Google Sheet": {
+      "main": [[{ "node": "Loop Back", "type": "main", "index": 0 }]]
+    },
+    "Loop Back": {
+      "main": [[{ "node": "Split In Batches", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
