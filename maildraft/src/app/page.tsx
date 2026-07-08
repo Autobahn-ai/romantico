@@ -159,7 +159,11 @@ export default function LandingPage() {
           <Mail className="h-4 w-4 text-blue-600" />
           <span className="font-semibold text-slate-700">MailDraft</span>
         </div>
-        <p>Dynamic email templates for teams &bull; Built with Next.js & Supabase</p>
+        <p>Dynamic email templates for teams &bull; Built with Next.js &amp; Supabase</p>
+        <div className="flex items-center justify-center gap-4 mt-3">
+          <Link href="/privacy" className="hover:text-slate-700 transition-colors">Privacy Policy</Link>
+          <Link href="/terms" className="hover:text-slate-700 transition-colors">Terms of Service</Link>
+        </div>
       </footer>
     </div>
   );

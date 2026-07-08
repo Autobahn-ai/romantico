@@ -1,133 +1,91 @@
 import { createClient } from '@supabase/supabase-js';
-import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import { ZodError } from 'zod';
+import { getAuthenticatedUser, getUserTeam } from '@/lib/auth';
+import { createTemplateSchema } from '@/lib/schemas';
+import {
+  unauthorizedResponse,
+  forbiddenResponse,
+  validationErrorResponse,
+  internalErrorResponse,
+} from '@/lib/api-response';
 
-function createServerSupabase() {
+function db() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false } }
   );
 }
 
-async function getAuthenticatedUser(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  const token = authHeader?.replace('Bearer ', '');
-
-  const supabase = createServerSupabase();
-  if (token) {
-    const { data: { user } } = await supabase.auth.getUser(token);
-    return { user, supabase };
-  }
-
-  const cookieStore = await cookies();
-  const accessToken = cookieStore.get('sb-access-token')?.value;
-  if (accessToken) {
-    const { data: { user } } = await supabase.auth.getUser(accessToken);
-    return { user, supabase };
-  }
-
-  return { user: null, supabase };
-}
-
 export async function GET(request: NextRequest) {
-  const { user, supabase } = await getAuthenticatedUser(request);
+  try {
+    const auth = await getAuthenticatedUser(request);
+    if (!auth) return unauthorizedResponse();
 
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+    const team = await getUserTeam(auth.userId);
+    if (!team) return forbiddenResponse('You are not a member of any team');
 
-  const { data: teamMember } = await supabase
-    .from('team_members')
-    .select('team_id')
-    .eq('user_id', user.id)
-    .single();
-
-  if (!teamMember) {
-    return NextResponse.json({ error: 'Not a team member' }, { status: 403 });
-  }
-
-  const { data: templates, error } = await supabase
-    .from('templates')
-    .select(`
-      *,
-      template_blocks (
+    const { data: templates, error } = await db()
+      .from('templates')
+      .select(`
         *,
-        block_options (
+        template_blocks (
           *,
-          option_attachments (*)
-        )
-      ),
-      template_variables (*)
-    `)
-    .eq('team_id', teamMember.team_id)
-    .order('created_at', { ascending: false });
+          block_options (
+            *,
+            option_attachments (*)
+          )
+        ),
+        template_variables (*)
+      `)
+      .eq('team_id', team.teamId)
+      .order('created_at', { ascending: false });
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return internalErrorResponse(error, 'GET /api/templates');
+
+    return NextResponse.json(templates);
+  } catch (err) {
+    return internalErrorResponse(err, 'GET /api/templates');
   }
-
-  return NextResponse.json(templates);
 }
 
 export async function POST(request: NextRequest) {
-  const { user, supabase } = await getAuthenticatedUser(request);
+  try {
+    const auth = await getAuthenticatedUser(request);
+    if (!auth) return unauthorizedResponse();
 
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+    const team = await getUserTeam(auth.userId);
+    if (!team) return forbiddenResponse('You are not a member of any team');
+    if (team.role !== 'admin') return forbiddenResponse('Only team admins can create templates');
 
-  const { data: teamMember } = await supabase
-    .from('team_members')
-    .select('team_id, role')
-    .eq('user_id', user.id)
-    .single();
+    const body = await request.json().catch(() => null);
+    if (!body) return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
 
-  if (!teamMember || teamMember.role !== 'admin') {
-    return NextResponse.json({ error: 'Only admins can create templates' }, { status: 403 });
-  }
+    const parsed = createTemplateSchema.safeParse(body);
+    if (!parsed.success) return validationErrorResponse(parsed.error);
 
-  const body = await request.json();
-  const { name, description, subject_line, variables, blocks } = body;
+    const { name, description, subject_line, variables, blocks } = parsed.data;
 
-  // Insert template
-  const { data: template, error: templateError } = await supabase
-    .from('templates')
-    .insert({
-      team_id: teamMember.team_id,
-      name,
-      description,
-      subject_line,
-      created_by: user.id,
-    })
-    .select()
-    .single();
+    const supabase = db();
 
-  if (templateError) {
-    return NextResponse.json({ error: templateError.message }, { status: 500 });
-  }
+    const { data: template, error: templateError } = await supabase
+      .from('templates')
+      .insert({ team_id: team.teamId, name, description, subject_line, created_by: auth.userId })
+      .select()
+      .single();
 
-  // Insert variables
-  if (variables && variables.length > 0) {
-    const { error: varsError } = await supabase
-      .from('template_variables')
-      .insert(
-        variables.map((v: { variable_name: string; auto_fill_type: string; default_value: string }) => ({
-          template_id: template.id,
-          variable_name: v.variable_name,
-          auto_fill_type: v.auto_fill_type,
-          default_value: v.default_value,
-        }))
+    if (templateError) return internalErrorResponse(templateError, 'POST /api/templates insert');
+
+    if (variables.length > 0) {
+      const { error } = await supabase.from('template_variables').insert(
+        variables.map(v => ({ ...v, template_id: template.id }))
       );
-
-    if (varsError) {
-      return NextResponse.json({ error: varsError.message }, { status: 500 });
+      if (error) return internalErrorResponse(error, 'POST /api/templates variables');
     }
-  }
 
-  // Insert blocks and their options/attachments
-  if (blocks && blocks.length > 0) {
     for (const block of blocks) {
-      const { data: insertedBlock, error: blockError } = await supabase
+      const { data: insertedBlock, error: blockErr } = await supabase
         .from('template_blocks')
         .insert({
           template_id: template.id,
@@ -139,48 +97,34 @@ export async function POST(request: NextRequest) {
         .select()
         .single();
 
-      if (blockError) {
-        return NextResponse.json({ error: blockError.message }, { status: 500 });
-      }
+      if (blockErr) return internalErrorResponse(blockErr, 'POST /api/templates block');
 
-      if (block.options && block.options.length > 0) {
-        for (const option of block.options) {
-          const { data: insertedOption, error: optionError } = await supabase
-            .from('block_options')
-            .insert({
-              block_id: insertedBlock.id,
-              label: option.label,
-              body_text: option.body_text,
-              position: option.position,
-            })
-            .select()
-            .single();
+      for (const option of block.options) {
+        const { data: insertedOption, error: optErr } = await supabase
+          .from('block_options')
+          .insert({
+            block_id: insertedBlock.id,
+            label: option.label,
+            body_text: option.body_text,
+            position: option.position,
+          })
+          .select()
+          .single();
 
-          if (optionError) {
-            return NextResponse.json({ error: optionError.message }, { status: 500 });
-          }
+        if (optErr) return internalErrorResponse(optErr, 'POST /api/templates option');
 
-          if (option.attachments && option.attachments.length > 0) {
-            const { error: attachError } = await supabase
-              .from('option_attachments')
-              .insert(
-                option.attachments.map((att: { file_name: string; google_drive_file_id: string; google_drive_url: string; mime_type: string }) => ({
-                  option_id: insertedOption.id,
-                  file_name: att.file_name,
-                  google_drive_file_id: att.google_drive_file_id,
-                  google_drive_url: att.google_drive_url,
-                  mime_type: att.mime_type,
-                }))
-              );
-
-            if (attachError) {
-              return NextResponse.json({ error: attachError.message }, { status: 500 });
-            }
-          }
+        if (option.attachments.length > 0) {
+          const { error: attErr } = await supabase.from('option_attachments').insert(
+            option.attachments.map(att => ({ ...att, option_id: insertedOption.id }))
+          );
+          if (attErr) return internalErrorResponse(attErr, 'POST /api/templates attachment');
         }
       }
     }
-  }
 
-  return NextResponse.json(template, { status: 201 });
+    return NextResponse.json(template, { status: 201 });
+  } catch (err) {
+    if (err instanceof ZodError) return validationErrorResponse(err);
+    return internalErrorResponse(err, 'POST /api/templates');
+  }
 }

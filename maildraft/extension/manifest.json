@@ -8,8 +8,7 @@
     "storage"
   ],
   "host_permissions": [
-    "https://mail.google.com/*",
-    "https://*.supabase.co/*"
+    "https://mail.google.com/*"
   ],
   "content_scripts": [
     {

@@ -5,10 +5,24 @@ let currentTemplates = [];
 let authToken = null;
 let appUrl = 'http://localhost:3000';
 
-// Load config
-chrome.storage.sync.get(['maildraft_token', 'maildraft_app_url'], (result) => {
-  authToken = result.maildraft_token || null;
-  appUrl = result.maildraft_app_url || 'http://localhost:3000';
+// Security: only allow HTTPS app URLs in production (allow localhost for dev)
+function isSafeAppUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || parsed.hostname === 'localhost';
+  } catch {
+    return false;
+  }
+}
+
+// Load config via background script (not directly from storage in content scripts)
+chrome.runtime.sendMessage({ type: 'GET_AUTH_TOKEN' }, (response) => {
+  if (response) authToken = response.token;
+});
+
+chrome.storage.sync.get(['maildraft_app_url'], (result) => {
+  const url = result.maildraft_app_url || 'http://localhost:3000';
+  appUrl = isSafeAppUrl(url) ? url : 'http://localhost:3000';
 });
 
 // Watch for compose window opening
