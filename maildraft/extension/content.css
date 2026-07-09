@@ -1,0 +1,49 @@
+/* MailDraft content script styles */
+
+#maildraft-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  transition: background 0.15s;
+  margin-left: 4px;
+}
+
+#maildraft-btn:hover {
+  background: #1d4ed8;
+}
+
+#maildraft-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+#maildraft-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 360px;
+  height: 100vh;
+  background: white;
+  border-left: 1px solid #e5e7eb;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.08);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  transform: translateX(100%);
+  transition: transform 0.2s ease;
+}
+
+#maildraft-sidebar.open {
+  transform: translateX(0);
+}

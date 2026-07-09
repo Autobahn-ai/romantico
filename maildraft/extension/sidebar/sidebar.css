@@ -1,0 +1,12 @@
+/* Sidebar styles — embedded in content.js as inline styles for isolation */
+/* This file serves as style reference; actual styles are in content.css */
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  margin: 0;
+  padding: 0;
+  color: #1a1a1a;
+}
