@@ -214,17 +214,28 @@ After Step 7 is deployed:
 
 1. Sign up at [stripe.com](https://stripe.com)
 2. Go to **Products** → **Add product**
-3. Create two products:
+3. Create these products:
 
-   **Starter — $29/month**
-   - Name: MailDraft Starter
-   - Pricing: Recurring, $29/month
+   **Solo — €3/month**
+   - Name: Remail Solo
+   - Pricing: Recurring, €3/month (or $3/month — you choose your base currency)
    - Copy the **Price ID** (starts with `price_...`)
 
-   **Pro — $99/month**
-   - Name: MailDraft Pro
-   - Pricing: Recurring, $99/month
+   **Team — €3/month base**
+   - Name: Remail Team
+   - Pricing: Recurring, €3/month
+   - This covers the first 10 users. Extra seats (€2/user) will be added as a separate metered item.
    - Copy the **Price ID**
+
+   **Team per-seat add-on — €2/user/month** (optional, for Stripe metered billing)
+   - Name: Remail Team Extra Seat
+   - Pricing: Recurring, €2/unit/month, usage-based (metered)
+   - Copy the **Price ID**
+
+   > **Simpler alternative for now:** Skip metered billing. Charge €3/month flat for Team, and manually adjust invoices for large teams until you have volume. Add metered billing in a later version.
+
+   **Free plan**
+   - No Stripe product needed. Handled in the database: teams created without a Stripe subscription get `plan = 'free'` and are limited to 3 templates (read-only, pre-built).
 
 4. Go to **Developers** → **API Keys**:
    - Copy **Publishable key** (starts with `pk_test_`)
@@ -239,8 +250,9 @@ After Step 7 is deployed:
    STRIPE_SECRET_KEY=sk_test_...
    STRIPE_WEBHOOK_SECRET=whsec_...
    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
-   STRIPE_STARTER_PRICE_ID=price_...
-   STRIPE_PRO_PRICE_ID=price_...
+   STRIPE_SOLO_PRICE_ID=price_...
+   STRIPE_TEAM_PRICE_ID=price_...
+   STRIPE_TEAM_SEAT_PRICE_ID=price_...   (optional — only if you set up metered billing)
    ```
 
 ---
@@ -253,7 +265,10 @@ After you send me the Stripe Price IDs, I will:
 - Build `POST /api/billing/checkout` — creates Stripe checkout session
 - Build `POST /api/billing/webhook` — handles `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`
 - Build `/settings/billing` page — shows current plan, upgrade/downgrade button, next billing date
-- Add plan limits: Starter = 5 members + 20 templates, Pro = unlimited
+- Add plan limits:
+  - **Free** = 3 templates (pre-built, read-only — users can use them but not create/edit)
+  - **Solo** = unlimited templates, 1 user only
+  - **Team** = unlimited templates, unlimited users (with per-seat pricing)
 - Show upgrade prompt when limits are hit
 
 ---
@@ -269,7 +284,7 @@ After you send me the Stripe Price IDs, I will:
 4. Go to your app → Settings → Billing → click Upgrade
 5. Use test card `4242 4242 4242 4242`, any future date, any CVC
 6. Verify the plan updates in the dashboard
-7. Test hitting template limits (create more than 20 templates on Starter)
+7. Test the free plan limit (verify a free account can only see the 3 pre-built templates, cannot create more)
 
 ---
 
@@ -374,7 +389,7 @@ After production is deployed, I will:
 Before announcing to anyone:
 
 - [ ] Test the complete flow end-to-end with a fresh account (sign up → create team → build template → use in Gmail)
-- [ ] Test billing: upgrade to Pro, downgrade to Starter, verify limits
+- [ ] Test billing: upgrade from Free to Solo, upgrade to Team, verify limits at each tier
 - [ ] Verify the privacy policy URL is live and accessible
 - [ ] Verify `/api/health` returns `{"status":"ok"}`
 - [ ] Enable 2FA on your Supabase account, Google Cloud account, Stripe account, and Vercel account

@@ -9,7 +9,15 @@
 
 **MailDraft** is a B2B SaaS tool that lets teams compose personalized, consistent emails from dynamic templates — directly inside Gmail. Think of it as "Notion for email templates + a Gmail sidebar."
 
-**Revenue model:** Monthly subscription per team (e.g. $29/team/mo · $99/team/mo).
+**Revenue model:** Freemium + per-seat pricing.
+
+| Plan | Price | Limits |
+|------|-------|--------|
+| **Free** | €0 | 3 templates (read-only, fixed — cannot edit) |
+| **Solo** | €3 / month | Unlimited templates, 1 user |
+| **Team** | €3 first 10 users + €2/user after | Unlimited templates, team features |
+
+Example team prices: 1 user = €3, 10 users = €3, 15 users = €13 (3 + 5×2), 20 users = €23.
 
 ---
 
@@ -93,8 +101,10 @@ Right now teams must be created manually in the database. Build self-service.
 Do this before you talk to any paying customer.
 
 - [ ] Create Stripe account, add products:
-  - Starter: $29/mo · up to 5 team members · 20 templates
-  - Pro: $99/mo · unlimited members · unlimited templates
+  - **Free** — no Stripe product needed (handled in code)
+  - **Solo** — €3/mo (1 user, unlimited templates)
+  - **Team base** — €3/mo base (covers first 10 users)
+  - **Team per-seat** — €2/user/mo for each user beyond 10 (use Stripe metered billing or manual seat count)
 - [ ] `POST /api/billing/checkout` — create Stripe checkout session
 - [ ] `POST /api/billing/webhook` — handle `customer.subscription.updated`, `invoice.payment_failed`
 - [ ] Add `stripe_customer_id`, `plan`, `plan_expires_at` columns to `teams` table

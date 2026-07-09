@@ -71,7 +71,13 @@ export default function TermsPage() {
           <section>
             <h2 className="text-xl font-semibold text-slate-900 mb-3">5. Subscriptions & billing</h2>
             <ul className="list-disc ml-6 space-y-2">
-              <li>Paid plans are billed monthly or annually as chosen at checkout</li>
+              <li><strong>Free plan:</strong> Includes 3 read-only templates. No payment required.</li>
+              <li><strong>Solo plan:</strong> €3/month per user. Unlimited templates.</li>
+              <li>
+                <strong>Team plan:</strong> €3/month covering up to 10 users. Additional users beyond
+                10 are charged at €2/user/month. The monthly charge is calculated based on your active seat count.
+              </li>
+              <li>Paid plans are billed monthly. Annual billing may be offered in future.</li>
               <li>Payments are processed by Stripe, a PCI-DSS compliant payment processor</li>
               <li>Subscriptions auto-renew unless cancelled before the renewal date</li>
               <li>We do not store your payment card details</li>
